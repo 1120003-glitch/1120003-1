@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 俄羅斯方塊</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #ffffff;
+            color: #000000;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #info-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            z-index: 100;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+        p {
+            margin: 5px 0;
+        }
+        #score {
+            font-weight: bold;
+            color: #22c55e; /* Green */
+        }
+        #controls {
+            margin-top: 15px;
+        }
+        #controls h2 {
+            margin: 0 0 5px 0;
+            font-size: 18px;
+        }
+        #game-over-modal {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 30px 40px;
+            border-radius: 15px;
+            text-align: center;
+            z-index: 200;
+            color: #ffffff;
+        }
+        #game-over-modal h2 {
+            font-size: 36px;
+            margin: 0 0 15px 0;
+            color: #f87171; /* Red */
+        }
+        #restart-button {
+            padding: 10px 20px;
+            font-size: 18px;
+            background-color: #60a5fa; /* Blue */
+            border: none;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #restart-button:hover {
+            background-color: #3b82f6;
+        }
+    </style>
+</head>
+<body>
+    <div id="info-container">
+        <h1>3D 俄羅斯方塊</h1>
+        <p>分數: <span id="score">0</span></p>
+        <div id="controls">
+            <h2>控制</h2>
+            <p>方向鍵: 移動</p>
+            <p>W/S: 向前/向後移動</p>
+            <p>Q/E: 旋轉 (Z軸)</p>
+            <p>A/D: 旋轉 (Y軸)</p>
+            <p>Z/X: 旋轉 (X軸)</p>
+            <p>空白鍵: 快速下降</p>
+            <p>滑鼠: 旋轉/縮放視角</p>
+        </div>
+    </div>
+
+    <div id="game-over-modal">
+        <h2>遊戲結束</h2>
+        <button id="restart-button">重新開始</button>
+    </div>
+
+    <script type="module">
+        // 導入 Three.js
+        import * as THREE from 'https://cdn.skypack.dev/three@0.132.2';
+        import { OrbitControls } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls;
+        let board, currentPiece;
+        let score = 0;
+
+        // 遊戲板尺寸
+        const BOARD_WIDTH = 10;
+        const BOARD_HEIGHT = 20;
+        const BOARD_DEPTH = 10;
+        const CUBE_SIZE = 1;
+
+        const fallInterval = 700; // 毫秒
+        let lastFallTime = 0;
+        let gameOver = false;
+
+        // 方塊形狀定義
+        const TETROMINOES = {
+            'I': {
+                color: 0x00f0f0, // 青色
+                shape: [
+                    {x: 0, y: 0, z: 0}, {x: 1, y: 0, z: 0}, {x: 2, y: 0, z: 0}, {x: 3, y: 0, z: 0}
+                ]
+            },
+            'J': {
+                color: 0x0000f0, // 藍色
+                shape: [
+                    {x: 0, y: 0, z: 0}, {x: 0, y: 1, z: 0}, {x: 1, y: 1, z: 0}, {x: 2, y: 1, z: 0}
+                ]
+            },
+            'L': {
+                color: 0xf0a000, // 橘色
+                shape: [
+                    {x: 2, y: 0, z: 0}, {x: 0, y: 1, z: 0}, {x: 1, y: 1, z: 0}, {x: 2, y: 1, z: 0}
+                ]
+            },
+            'O': {
+                color: 0xf0f000, // 黃色
+                shape: [
+                    {x: 0, y: 0, z: 0}, {x: 1, y: 0, z: 0}, {x: 0, y: 1, z: 0}, {x: 1, y: 1, z: 0}
+                ]
+            },
+            'S': {
+                color: 0x00f000, // 綠色
+                shape: [
+                    {x: 1, y: 0, z: 0}, {x: 2, y: 0, z: 0}, {x: 0, y: 1, z: 0}, {x: 1, y: 1, z: 0}
+                ]
+            },
+            'T': {
+                color: 0xa000f0, // 紫色
+                shape: [
+                    {x: 1, y: 0, z: 0}, {x: 0, y: 1, z: 0}, {x: 1, y: 1, z: 0}, {x: 2, y: 1, z: 0}
+                ]
+            },
+            'Z': {
+                color: 0xf00000, // 紅色
+                shape: [
+                    {x: 0, y: 0, z: 0}, {x: 1, y: 0, z: 0}, {x: 1, y: 1, z: 0}, {x: 2, y: 1, z: 0}
+                ]
+            }
+        };
+        const TETROMINO_KEYS = Object.keys(TETROMINOES);
+        
+        // 初始化
+        function init() {
+            // 場景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xffffff);
+
+            // 相機
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(BOARD_WIDTH / 2, BOARD_HEIGHT / 2, BOARD_HEIGHT + 5);
+            camera.lookAt(BOARD_WIDTH / 2, BOARD_HEIGHT / 2, 0);
+
+            // 渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // 控制器
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.target.set(BOARD_WIDTH / 2 - 0.5, BOARD_HEIGHT / 2 - 0.5, BOARD_DEPTH / 2 - 0.5);
+            controls.enableDamping = true;
+
+            // 光源
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            directionalLight.position.set(10, 20, 10);
+            scene.add(directionalLight);
+
+            // 繪製遊戲板邊框
+            const boardGeometry = new THREE.BoxGeometry(BOARD_WIDTH * CUBE_SIZE, BOARD_HEIGHT * CUBE_SIZE, BOARD_DEPTH * CUBE_SIZE);
+            const boardEdges = new THREE.EdgesGeometry(boardGeometry);
+            const boardLine = new THREE.LineSegments(boardEdges, new THREE.LineBasicMaterial({ color: 0xcccccc }));
+            boardLine.position.set((BOARD_WIDTH * CUBE_SIZE) / 2 - CUBE_SIZE/2, (BOARD_HEIGHT * CUBE_SIZE) / 2 - CUBE_SIZE/2, (BOARD_DEPTH * CUBE_SIZE) / 2 - CUBE_SIZE/2);
+            scene.add(boardLine);
+            
+            // 監聽視窗大小變化
+            window.addEventListener('resize', onWindowResize, false);
+            // 監聽鍵盤事件
+            document.addEventListener('keydown', onKeyDown, false);
+            
+            document.getElementById('restart-button').addEventListener('click', startGame);
+
+            startGame();
+            animate();
+        }
+
+        function startGame() {
+            // 清理場景
+            if (board) {
+                board.forEach(layer => layer.forEach(row => row.forEach(cell => {
+                    if(cell) scene.remove(cell.mesh);
+                })));
+            }
+
+            // 初始化遊戲板數據
+            board = Array(BOARD_HEIGHT).fill(0).map(() => 
+                Array(BOARD_WIDTH).fill(0).map(() => 
+                    Array(BOARD_DEPTH).fill(null)
+                )
+            );
+
+            score = 0;
+            updateScore();
+            gameOver = false;
+            document.getElementById('game-over-modal').style.display = 'none';
+            
+            if (currentPiece) {
+                scene.remove(currentPiece.group);
+            }
+
+            spawnPiece();
+        }
+
+        // 生成新方塊
+        function spawnPiece() {
+            const type = TETROMINO_KEYS[Math.floor(Math.random() * TETROMINO_KEYS.length)];
+            const pieceData = TETROMINOES[type];
+            const group = new THREE.Group();
+            
+            const geometry = new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
+            const material = new THREE.MeshStandardMaterial({ color: pieceData.color });
+
+            const cubes = pieceData.shape.map(pos => {
+                const cubeMesh = new THREE.Mesh(geometry, material);
+                cubeMesh.position.set(pos.x * CUBE_SIZE, pos.y * CUBE_SIZE, pos.z * CUBE_SIZE);
+                group.add(cubeMesh);
+                return cubeMesh;
+            });
+
+            currentPiece = {
+                group: group,
+                cubes: cubes,
+                x: Math.floor(BOARD_WIDTH / 2) - 1,
+                y: BOARD_HEIGHT - 2,
+                z: Math.floor(BOARD_DEPTH / 2) - 1
+            };
+            
+            updatePiecePosition();
+            scene.add(group);
+
+            if (checkCollision()) {
+                gameOver = true;
+                document.getElementById('game-over-modal').style.display = 'flex';
+            }
+        }
+        
+        // 更新方塊在場景中的位置
+        function updatePiecePosition() {
+             currentPiece.group.position.set(
+                currentPiece.x * CUBE_SIZE,
+                currentPiece.y * CUBE_SIZE,
+                currentPiece.z * CUBE_SIZE
+            );
+        }
+
+        // 檢查碰撞
+        function checkCollision() {
+            for (let cube of currentPiece.cubes) {
+                const worldPos = new THREE.Vector3();
+                cube.getWorldPosition(worldPos);
+
+                const boardX = Math.round(worldPos.x / CUBE_SIZE);
+                const boardY = Math.round(worldPos.y / CUBE_SIZE);
+                const boardZ = Math.round(worldPos.z / CUBE_SIZE);
+                
+                // 邊界檢查
+                if (boardX < 0 || boardX >= BOARD_WIDTH || 
+                    boardY < 0 || 
+                    boardZ < 0 || boardZ >= BOARD_DEPTH) {
+                    return true;
+                }
+                
+                // 與已固定方塊的碰撞檢查
+                if (boardY < BOARD_HEIGHT && board[boardY][boardX][boardZ]) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // 將方塊固定到遊戲板
+        function placePiece() {
+            for (let cube of currentPiece.cubes) {
+                const worldPos = new THREE.Vector3();
+                cube.getWorldPosition(worldPos);
+
+                const boardX = Math.round(worldPos.x / CUBE_SIZE);
+                const boardY = Math.round(worldPos.y / CUBE_SIZE);
+                const boardZ = Math.round(worldPos.z / CUBE_SIZE);
+
+                if (boardY >= 0 && boardY < BOARD_HEIGHT &&
+                    boardX >= 0 && boardX < BOARD_WIDTH &&
+                    boardZ >= 0 && boardZ < BOARD_DEPTH) {
+                    // 創建一個新的獨立方塊並添加到場景
+                    const placedCubeMesh = cube.clone();
+                    placedCubeMesh.position.copy(worldPos);
+                    scene.add(placedCubeMesh);
+                    
+                    board[boardY][boardX][boardZ] = { mesh: placedCubeMesh };
+                }
+            }
+            scene.remove(currentPiece.group);
+            clearLines();
+            spawnPiece();
+        }
+
+        // 清除完整的層
+        function clearLines() {
+            let linesCleared = 0;
+            for (let y = 0; y < BOARD_HEIGHT; y++) {
+                let isLayerFull = true;
+                for (let x = 0; x < BOARD_WIDTH; x++) {
+                    for (let z = 0; z < BOARD_DEPTH; z++) {
+                        if (!board[y][x][z]) {
+                            isLayerFull = false;
+                            break;
+                        }
+                    }
+                    if (!isLayerFull) break;
+                }
+
+                if (isLayerFull) {
+                    linesCleared++;
+                    // 移除該層的方塊
+                    for (let x = 0; x < BOARD_WIDTH; x++) {
+                        for (let z = 0; z < BOARD_DEPTH; z++) {
+                            scene.remove(board[y][x][z].mesh);
+                        }
+                    }
+                    // 將上方的層向下移動
+                    for (let fallY = y; fallY < BOARD_HEIGHT - 1; fallY++) {
+                        for (let x = 0; x < BOARD_WIDTH; x++) {
+                            for (let z = 0; z < BOARD_DEPTH; z++) {
+                                board[fallY][x][z] = board[fallY + 1][x][z];
+                                if (board[fallY][x][z]) {
+                                    board[fallY][x][z].mesh.position.y -= CUBE_SIZE;
+                                }
+                            }
+                        }
+                    }
+                    // 清空最頂層
+                    board[BOARD_HEIGHT - 1] = Array(BOARD_WIDTH).fill(0).map(() => Array(BOARD_DEPTH).fill(null));
+                    y--; // 重新檢查當前層
+                }
+            }
+            if(linesCleared > 0) {
+                score += linesCleared * linesCleared * 100; // 分數獎勵
+                updateScore();
+            }
+        }
+        
+        function updateScore() {
+            document.getElementById('score').innerText = score;
+        }
+
+        // 鍵盤事件處理
+        function onKeyDown(event) {
+            if (gameOver) return;
+            
+            switch (event.code) {
+                case 'ArrowLeft':
+                    currentPiece.x--;
+                    if (checkCollision()) currentPiece.x++;
+                    break;
+                case 'ArrowRight':
+                    currentPiece.x++;
+                    if (checkCollision()) currentPiece.x--;
+                    break;
+                case 'KeyS':
+                     currentPiece.z++;
+                    if (checkCollision()) currentPiece.z--;
+                    break;
+                case 'KeyW':
+                     currentPiece.z--;
+                    if (checkCollision()) currentPiece.z++;
+                    break;
+                case 'ArrowDown':
+                    currentPiece.y--;
+                     if (checkCollision()) {
+                        currentPiece.y++;
+                        placePiece();
+                    }
+                    break;
+                case 'Space':
+                    while(!checkCollision()){
+                        currentPiece.y--;
+                    }
+                    currentPiece.y++;
+                    placePiece();
+                    break;
+                // 旋轉
+                case 'KeyQ': // Z軸
+                    currentPiece.group.rotateZ(Math.PI / 2);
+                    if (checkCollision()) currentPiece.group.rotateZ(-Math.PI / 2);
+                    break;
+                case 'KeyE': // Z軸
+                    currentPiece.group.rotateZ(-Math.PI / 2);
+                    if (checkCollision()) currentPiece.group.rotateZ(Math.PI / 2);
+                    break;
+                 case 'KeyA': // Y軸
+                    currentPiece.group.rotateY(Math.PI / 2);
+                    if (checkCollision()) currentPiece.group.rotateY(-Math.PI / 2);
+                    break;
+                case 'KeyD': // Y軸
+                    currentPiece.group.rotateY(-Math.PI / 2);
+                    if (checkCollision()) currentPiece.group.rotateY(Math.PI / 2);
+                    break;
+                case 'KeyZ': // X軸
+                    currentPiece.group.rotateX(Math.PI / 2);
+                    if (checkCollision()) currentPiece.group.rotateX(-Math.PI / 2);
+                    break;
+                case 'KeyX': // X軸
+                    currentPiece.group.rotateX(-Math.PI / 2);
+                    if (checkCollision()) currentPiece.group.rotateX(Math.PI / 2);
+                    break;
+            }
+            updatePiecePosition();
+        }
+
+        // 視窗大小變化處理
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 動畫循環
+        function animate(time) {
+            requestAnimationFrame(animate);
+
+            if (!gameOver) {
+                if (time - lastFallTime > fallInterval) {
+                    currentPiece.y--;
+                    if (checkCollision()) {
+                        currentPiece.y++;
+                        placePiece();
+                    }
+                    updatePiecePosition();
+                    lastFallTime = time;
+                }
+            }
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
+
